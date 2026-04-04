@@ -14,7 +14,7 @@ import aiohttp
 from aiogram import Bot, Dispatcher, F, types
 from aiogram.exceptions import TelegramBadRequest
 from aiogram.filters import Command
-from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, LabeledPrice
+from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, LabeledPrice, InputMediaPhoto
 from colorama import Fore, init
 
 # ========= INIT =========
@@ -61,6 +61,8 @@ bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
 START_TS = time.time()
 WIZARD_STATE = {}
+HUNT_PAUSED_USERS = set()  # Набор ID пользователей с остановленным поиском
+TUTORIAL_STATE = {}  # Отслеживание прогресса туториала: {user_id: step_number}
 
 # ========= GLOBAL ATTR_EMOJI =========
 def attr_emoji(name, percent, is_black=False):
@@ -303,6 +305,7 @@ def load_collections():
         "PoolFloat": {"start": 196693, "enabled": True, "rare_count": 0, "max_percent": 2.0},
         "MoodPack": {"start": 166928, "enabled": True, "rare_count": 0, "max_percent": 2.0},
         "ChillFlame": {"start": 374000, "enabled": True, "rare_count": 0, "max_percent": 2.0},
+        "ViceCream": {"start": 0, "enabled": True, "rare_count": 0, "max_percent": 3.0},
     }
 
 
@@ -426,6 +429,635 @@ for c in COLLECTIONS:
     RECENT_STATS.setdefault(c, [])
 
 
+# ========= COLLECTION ATTRIBUTES CONFIG =========
+COLLECTION_MODELS = {
+    "ChillFlame": [
+        "any",
+        "Eye of Sauron — 0.1%",
+        "Satis-fire — 0.1%",
+        "Baba Yaga — 0.2%",
+        "Dark Souls — 0.2%",
+        "Skyrim — 0.2%",
+        "Firebrand — 0.5%",
+        "Flamethrower — 0.5%",
+        "Ghost Rider — 0.5%",
+        "Molotov — 0.5%",
+        "Revolt — 0.5%",
+        "Sochi — 0.5%",
+        "Terraria — 0.5%",
+        "The Match — 0.5%",
+        "Camelot — 1%",
+        "Desk Lamp — 1%",
+        "Medieval — 1%",
+        "Pixel Art — 1%",
+        "Signal Flare — 1%",
+        "Triumph — 1%",
+        "Victory — 1%",
+        "Dark Relic — 1.5%",
+        "Elder Wand — 1.5%",
+        "Sea Horse — 1.5%",
+        "Bubble Prism — 2%",
+        "Carousel — 2%",
+        "Flashlight — 2%",
+        "Ghost Light — 2.7%",
+        "Balinese — 2.7%",
+        "Bear Market — 3%",
+        "Birthday Cake — 3%",
+        "Bowl of Hygieia — 3%",
+        "Bull Run — 3%",
+        "Candelabra — 3%",
+        "Druid Flame — 3%",
+        "Dungeon — 3%",
+        "Eternal Flame — 3%",
+        "Ionic Column — 3%",
+        "Iron Rose — 3%",
+        "Lava Lamp — 3%",
+        "Lego — 3%",
+        "Los Angeles — 3%",
+        "Oil Lamp — 3%",
+        "Olympia — 3%",
+        "Oracle — 3%",
+        "Paper Lantern — 3%",
+        "Prometheus — 3%",
+        "Royal Goblet — 3%",
+        "Spaceship — 3%",
+        "Spark Plug — 3%",
+        "Spring Grove — 3%",
+        "Tiki Torch — 3%",
+        "Tribal Totem — 3%"
+    ],
+    "MoodPack": [
+        "any",
+        "Battle Royale — 0.5%",
+        "Jetpack — 0.5%",
+        "Net Worth — 0.5%",
+        "Pepe Unleashed — 0.5%",
+        "Proton Pack — 0.5%",
+        "Golden Dragon — 1%",
+        "Jolly Roger — 1%",
+        "Lady Arcana — 1%",
+        "Laika Dog — 1%",
+        "Moon Power — 1%",
+        "Nezuko — 1%",
+        "Travel Duck — 1%",
+        "Void Beast — 1%",
+        "Crystal Scarab — 1.5%",
+        "Infernal Goat — 1.5%",
+        "Rare Drop — 1.5%",
+        "Ruby Heart — 1.5%",
+        "VIP Pass — 1.5%",
+        "Bank Vault — 2%",
+        "6.6Emo Phase — 2%",
+        "Fluffy Monster — 2%",
+        "Plush Shark — 2%",
+        "Road Rebel — 2%",
+        "Turtle Shell — 2%",
+        "Aquarium — 2.5%",
+        "Davy Jones — 2.5%",
+        "Fallout — 2.5%",
+        "Fashionista — 2.5%",
+        "Fast Courier — 2.5%",
+        "Fire Show — 2.5%",
+        "Gingerbread — 2.5%",
+        "Grand Slam — 2.5%",
+        "Master Angler — 2.5%",
+        "Movie Night — 2.5%",
+        "Paladin — 2.5%",
+        "Retro Wave — 2.5%",
+        "Rock and Roll — 2.5%",
+        "Rodeo King — 2.5%",
+        "Striker — 2.5%",
+        "Wanderer — 2.5%",
+        "Angel Wings — 3%",
+        "Bloom Pack — 3%",
+        "Burger Bag — 3%",
+        "Cat Pack — 3%",
+        "Croc Sack — 3%",
+        "Goth Gir — 3%",
+        "Love Letters — 3%",
+        "Space Cat — 3%",
+        "Star Pupil — 3%",
+        "Street Art — 3%"
+    ],
+    "ViceCream": [
+        "any",
+        "Dark Lord — 0.5%",
+        "Gold Leaf — 0.5%",
+        "Red Dragon — 0.5%",
+        "Tralashark — 0.5%",
+        "Frappuccino — 1%",
+        "Punk Rock — 1%",
+        "Bumblebee — 1.5%",
+        "Crystal — 1.5%",
+        "Love Glazed — 1.5%",
+        "Mega Scoop — 1.5%",
+        "Raspberry — 1.5%",
+        "Rock Solid — 1.5%",
+        "Sub-Zero — 1.5%",
+        "Sundae Drive — 1.5%",
+        "Viceroy — 1.5%",
+        "Bite Me — 2%",
+        "Cavendish — 2%",
+        "Champion — 2%",
+        "Cup — 2%",
+        "Chilly Bones — 2%",
+        "Choco Cone — 2%",
+        "Gelato Rose — 2%",
+        "Gummy Bear — 2%",
+        "Porcelain — 2%",
+        "Queen's Gambit — 2%",
+        "Scoopzilla — 2%",
+        "Star Buddy — 2%",
+        "Stay Chill — 2%",
+        "Taiyaki — 2%",
+        "Ube Cream — 2%",
+        "Vanilla — 2%",
+        "Vanilla Brick — 2%",
+        "Vintage Bunny — 2%",
+        "Wafflesaurus — 2%",
+        "Cold Paws — 2.5%",
+        "Dark Sparkle — 2.5%",
+        "Iceman — 2.5%",
+        "Mermaid — 2.5%",
+        "Sushi — 2.5%",
+        "Bamboo Ice — 3%",
+        "Berry Shake — 3%",
+        "Birthday — 3%",
+        "Cherry On Top — 3%",
+        "Circus — 3%",
+        "Classic — 3%",
+        "Disco Funk — 3%",
+        "Dreamland — 3%",
+        "Pine Cone — 3%",
+        "Pumpkin Spice — 3%",
+        "Unicone — 3%"
+    ],
+    "PoolFloat": [
+        "any",
+        "Baywatch — 0.5%",
+        "Luxury Yacht — 0.5%",
+        "Nessie — 0.5%",
+        "Going Merry — 1%",
+        "Gzhel — 1%",
+        "Khokhloma — 1%",
+        "Kitsune — 1%",
+        "Pool King — 1%",
+        "Pool Pepe — 1%",
+        "Stretching — 1%",
+        "Anubis — 1.5%",
+        "Cash Flow — 1.5%",
+        "Crypto Whale — 1.5%",
+        "Homer — 1.5%",
+        "Hong Long — 1.5%",
+        "Los Muertos — 1.5%",
+        "Peach Shake — 1.5%",
+        "Safari — 1.5%",
+        "Skibidi — 1.5%",
+        "Slick Track — 1.5%",
+        "Water — 1.5%",
+        "Water Tank — 1.5%",
+        "Bald Eagle — 2%",
+        "Disco — 2%",
+        "Leonardo — 2%",
+        "Motorboat — 2%",
+        "Pigeon — 2%",
+        "Pool Party — 2%",
+        "Stonks — 2%",
+        "Duck Boss — 2.5%",
+        "Giant Panda — 2.5%",
+        "Mojito — 2.5%",
+        "Pelican Decoy — 2.5%",
+        "Rescue Mission — 2.5%",
+        "Royal Peacock — 2.5%",
+        "Toucan — 2.5%",
+        "Air Bunny — 3%",
+        "Alpaca — 3%",
+        "Balloon Dog — 3%",
+        "Dark Swan — 3%",
+        "Giraffe — 3%",
+        "Golden Cobra — 3%",
+        "Lizard — 3%",
+        "Lucky Dragon — 3%",
+        "Palm Beach — 3%",
+        "Private Jet — 3%",
+        "Quacky — 3%",
+        "Sebastian — 3%",
+        "Show Seal — 3%",
+        "Unicorn — 3%"
+    ],
+    "StellarRocket": [
+        "any",
+        "Bitcoin — 0.5%",
+        "Mission Uranus — 0.5%",
+        "To The Moon — 0.5%",
+        "Black Wing — 1%",
+        "Gunship — 1%",
+        "Jewels — 1%",
+        "Mega Death — 1%",
+        "Normandy — 1%",
+        "Nostromo — 1%",
+        "Space Bot — 1%",
+        "Space Veggie — 1%",
+        "Telegram — 1%",
+        "Chrome — 1.5%",
+        "Knowledge — 1.5%",
+        "Pepelatz — 1.5%",
+        "Planet Express — 1.5%",
+        "Police Box — 1.5%",
+        "Submarine — 1.5%",
+        "Alien Pizza — 2%",
+        "Baby Carrot — 2%",
+        "Clever Bird — 2%",
+        "Doomsday — 2%",
+        "Fishing Cat — 2%",
+        "Laika — 2%",
+        "Little Journey — 2%",
+        "Pencil — 2%",
+        "Squirrel — 2%",
+        "Worm Gun — 2%",
+        "Banana — 2.5%",
+        "Cardboard — 2.5%",
+        "Checkered — 2.5%",
+        "First Step — 2.5%",
+        "Flower Power — 2.5%",
+        "Jet Bike — 2.5%",
+        "Lava Lamp — 2.5%",
+        "Malfunction — 2.5%",
+        "Rocket Plush — 2.5%",
+        "Silver Ride — 2.5%",
+        "Soap Bubbles — 2.5%",
+        "Astro Peach — 3%",
+        "Fireworks — 3%",
+        "Green Jelly — 3%",
+        "Hornet — 3%",
+        "Lollipop — 3%",
+        "Neon Fuel — 3%",
+        "Popsicle — 3%",
+        "Ruby Sparkle — 3%",
+        "Sky Ghost — 3%",
+        "Unicorn — 3%",
+        "Vintage Toy — 3%"
+    ]
+}
+
+COLLECTION_BACKGROUNDS = {
+    "ChillFlame": [
+        "any", "Amber", "Aquamarine", "Azure Blue", "Battleship Grey", "Burgundy",
+        "Burnt Sienna", "Camo Green", "Cappuccino", "Caramel", "Carmine", "Carrot Juice",
+        "Chestnut", "Chocolate", "Cobalt Blue", "Copper", "Coral Red", "Cyberpunk",
+        "Dark Green", "Dark Lilac", "Deep Cyan", "Desert Sand", "Electric Indigo",
+        "Electric Purple", "Emerald", "English Violet", "Fandango", "Fire Engine",
+        "French Blue", "French Violet", "Grape", "Gunship Green", "Hunter Green",
+        "Indigo Dye", "Ivory White", "Jade Green", "Khaki Green", "Lavender",
+        "Lemongrass", "Light Olive", "Marine Blue", "Mexican Pink", "Midnight Blue",
+        "Mint Green", "Moonstone", "Mustard", "Mystic Pearl", "Navy Blue", "Old Gold",
+        "Onyx Black", "Pacific Cyan", "Pacific Green", "Persimmon", "Pine Green",
+        "Pistachio", "Pure Gold", "Purple", "Ranger Green", "Raspberry", "Rifle Green",
+        "Roman Silver", "Sapphire", "Satin Gold", "Seal Brown", "Shamrock Green",
+        "Silver Blue", "Sky Blue", "Steel Grey", "Strawberry", "Tactical Pine", "Tomato",
+        "Turquoise", "Malachite", "Neon Blue", "Orange", "Platinum", "Feldgrau",
+        "Celtic Blue", "Gunmetal", "Rosewood"
+    ],
+    "MoodPack": [
+        "any",
+        "Black",
+        "Aquamarine",
+        "Azure Blue",
+        "Burgundy",
+        "Burnt Sienna",
+        "Camo Green",
+        "Cappuccino",
+        "Carmine",
+        "Carrot Juice",
+        "Celtic Blue",
+        "Coral Red",
+        "Dark Green",
+        "Dark Lilac",
+        "Deep Cyan",
+        "Desert Sand",
+        "Electric Indigo",
+        "Electric Purple",
+        "Emerald",
+        "English Violet",
+        "Fandango",
+        "French Blue",
+        "French Violet",
+        "Grape",
+        "Gunmetal",
+        "Gunship Green",
+        "Hunter Green",
+        "Ivory White",
+        "Jade Green",
+        "Khaki Green",
+        "Lemongrass",
+        "Light Olive",
+        "Malachite",
+        "Mexican Pink",
+        "Midnight Blue",
+        "Mustard",
+        "Mystic Pearl",
+        "Navy Blue",
+        "Neon Blue",
+        "Old Gold",
+        "Orange",
+        "Pacific Cyan",
+        "Persimmon",
+        "Pistachio",
+        "Pure Gold",
+        "Purple",
+        "Ranger Green",
+        "Roman Silver",
+        "Rosewood",
+        "Sapphire",
+        "Satin Gold",
+        "Seal Brown",
+        "Shamrock Green",
+        "Silver Blue",
+        "Steel Grey",
+        "Tactical Pine",
+        "Tomato",
+        "Amber — 1%",
+        "Cyberpunk — 1%",
+        "Indigo Dye — 1%",
+        "Platinum — 1%",
+        "Chestnut — 1.2%",
+        "Chocolate — 1.2%",
+        "Fire Engine — 1.2%",
+        "Moonstone — 1.2%",
+        "Pacific Green — 1.2%",
+        "Rifle Green — 1.2%",
+        "Sky Blue — 1.2%",
+        "Strawberry — 1.2%",
+        "Turquoise — 1.2%",
+        "Battleship Grey — 1.5%",
+        "Caramel — 1.5%",
+        "Cobalt Blue — 1.5%",
+        "Copper — 1.5%",
+        "Feldgrau — 1.5%",
+        "Lavender — 1.5%",
+        "Marine Blue — 1.5%",
+        "Mint Green — 1.5%",
+        "Onyx Black — 1.5%",
+        "Pine Green — 1.5%",
+        "Raspberry — 1.5%"
+    ],
+    "ViceCream": [
+        "any",
+        "Black",
+        "Amber",
+        "Aquamarine",
+        "Azure Blue",
+        "Battleship Grey",
+        "Burgundy",
+        "Camo Green",
+        "Cappuccino",
+        "Caramel",
+        "Carmine",
+        "Carrot Juice",
+        "Celtic Blue",
+        "Chestnut",
+        "Chocolate",
+        "Cobalt Blue",
+        "Copper",
+        "Coral Red",
+        "Cyberpunk",
+        "Dark Green",
+        "Dark Lilac",
+        "Deep Cyan",
+        "Desert Sand",
+        "Electric Indigo",
+        "Electric Purple",
+        "Emerald",
+        "English Violet",
+        "Fandango",
+        "Feldgrau",
+        "Fire Engine",
+        "French Blue",
+        "French Violet",
+        "Grape",
+        "Gunmetal",
+        "Gunship Green",
+        "Hunter Green",
+        "Indigo Dye",
+        "Ivory White",
+        "Jade Green",
+        "Khaki Green",
+        "Lavender",
+        "Lemongrass",
+        "Light Olive",
+        "Malachite",
+        "Marine Blue",
+        "Mexican Pink",
+        "Midnight Blue",
+        "Mint Green",
+        "Moonstone",
+        "Mustard",
+        "Mystic Pearl",
+        "Navy Blue",
+        "Neon Blue",
+        "Old Gold",
+        "Onyx Black",
+        "Orange",
+        "Pacific Cyan",
+        "Pacific Green",
+        "Persimmon",
+        "Pine Green",
+        "Pistachio",
+        "Pure Gold",
+        "Purple",
+        "Ranger Green",
+        "Raspberry",
+        "Rifle Green",
+        "Roman Silver",
+        "Rosewood",
+        "Satin Gold",
+        "Shamrock Green",
+        "Silver Blue",
+        "Sky Blue",
+        "Steel Grey",
+        "Strawberry",
+        "Tactical Pine",
+        "Tomato",
+        "Turquoise",
+        "Burnt Sienna",
+        "Sapphire — 1.2%",
+        "Seal Brown — 1.2%",
+        "Platinum — 1.5%"
+    ],
+    "PoolFloat": [
+        "any",
+        "Black",
+        "Aquamarine",
+        "Azure Blue",
+        "Burgundy",
+        "Burnt Sienna",
+        "Camo Green",
+        "Cappuccino",
+        "Caramel",
+        "Carrot Juice",
+        "Chestnut",
+        "Chocolate",
+        "Cobalt Blue",
+        "Copper",
+        "Dark Green",
+        "Dark Lilac",
+        "Deep Cyan",
+        "Desert Sand",
+        "Electric Indigo",
+        "Electric Purple",
+        "Emerald",
+        "English Violet",
+        "Feldgrau",
+        "Fire Engine",
+        "French Blue",
+        "French Violet",
+        "Grape",
+        "Gunmetal",
+        "Hunter Green",
+        "Ivory White",
+        "Jade Green",
+        "Khaki Green",
+        "Lavender",
+        "Light Olive",
+        "Malachite",
+        "Mexican Pink",
+        "Mint Green",
+        "Moonstone",
+        "Mustard",
+        "Mystic Pearl",
+        "Navy Blue",
+        "Neon Blue",
+        "Orange",
+        "Pacific Cyan",
+        "Pacific Green",
+        "Persimmon",
+        "Pistachio",
+        "Pure Gold",
+        "Ranger Green",
+        "Raspberry",
+        "Rifle Green",
+        "Roman Silver",
+        "Sapphire",
+        "Satin Gold",
+        "Seal Brown",
+        "Shamrock Green",
+        "Sky Blue",
+        "Steel Grey",
+        "Strawberry",
+        "Tactical Pine",
+        "Turquoise",
+        "Carmine — 1%",
+        "Celtic Blue — 1%",
+        "Lemongrass — 1%",
+        "Midnight Blue — 1%",
+        "Purple — 1%",
+        "Amber — 1.2%",
+        "Battleship Grey — 1.2%",
+        "Coral Red — 1.2%",
+        "Cyberpunk — 1.2%",
+        "Gunship Green — 1.2%",
+        "Pine Green — 1.2%",
+        "Rosewood — 1.2%",
+        "Tomato — 1.2%",
+        "Fandango — 1.5%",
+        "Indigo Dye — 1.5%",
+        "Marine Blue — 1.5%",
+        "Old Gold — 1.5%",
+        "Onyx Black — 1.5%",
+        "Platinum — 1.5%",
+        "Silver Blue — 1.5%"
+    ],
+    "StellarRocket": [
+        "any",
+        "Black — 1.2%",
+        "Aquamarine — 1%",
+        "Caramel — 1%",
+        "Carmine — 1%",
+        "Copper — 1%",
+        "Coral Red — 1%",
+        "Cyberpunk — 1%",
+        "Desert Sand — 1%",
+        "Emerald — 1%",
+        "English Violet — 1%",
+        "Ivory White — 1%",
+        "Lavender — 1%",
+        "Midnight Blue — 1%",
+        "Neon Blue — 1%",
+        "Old Gold — 1%",
+        "Pacific Green — 1%",
+        "Pine Green — 1%",
+        "Ranger Green — 1%",
+        "Raspberry — 1%",
+        "Rifle Green — 1%",
+        "Roman Silver — 1%",
+        "Sky Blue — 1%",
+        "Tomato — 1%",
+        "Amber — 1.2%",
+        "Burgundy — 1.2%",
+        "Celtic Blue — 1.2%",
+        "Chocolate — 1.2%",
+        "Cobalt Blue — 1.2%",
+        "Dark Green — 1.2%",
+        "Dark Lilac — 1.2%",
+        "Deep Cyan — 1.2%",
+        "Electric Purple — 1.2%",
+        "Fandango — 1.2%",
+        "Fire Engine — 1.2%",
+        "French Blue — 1.2%",
+        "French Violet — 1.2%",
+        "Gunmetal — 1.2%",
+        "Jade Green — 1.2%",
+        "Khaki Green — 1.2%",
+        "Light Olive — 1.2%",
+        "Mexican Pink — 1.2%",
+        "Mint Green — 1.2%",
+        "Moonstone — 1.2%",
+        "Mustard — 1.2%",
+        "Mystic Pearl — 1.2%",
+        "Onyx Black — 1.2%",
+        "Persimmon — 1.2%",
+        "Platinum — 1.2%",
+        "Sapphire — 1.2%",
+        "Satin Gold — 1.2%",
+        "Seal Brown — 1.2%",
+        "Turquoise — 1.2%",
+        "Azure Blue — 1.5%",
+        "Battleship Grey — 1.5%",
+        "Burnt Sienna — 1.5%",
+        "Camo Green — 1.5%",
+        "Cappuccino — 1.5%",
+        "Carrot Juice — 1.5%",
+        "Chestnut — 1.5%",
+        "Electric Indigo — 1.5%",
+        "Feldgrau — 1.5%",
+        "Grape — 1.5%",
+        "Gunship Green — 1.5%",
+        "Hunter Green — 1.5%",
+        "Indigo Dye — 1.5%",
+        "Lemongrass — 1.5%",
+        "Malachite — 1.5%",
+        "Marine Blue — 1.5%",
+        "Navy Blue — 1.5%",
+        "Orange — 1.5%",
+        "Pacific Cyan — 1.5%",
+        "Pistachio — 1.5%",
+        "Pure Gold — 1.5%",
+        "Purple — 1.5%",
+        "Rosewood — 1.5%",
+        "Shamrock Green — 1.5%",
+        "Silver Blue — 1.5%",
+        "Steel Grey — 1.5%",
+        "Strawberry — 1.5%",
+        "Tactical Pine — 1.5%"
+    ]
+}
+
+# Дефолтные опции для остальных коллекций
+DEFAULT_MODELS = ["any", "Hong Long", "Alpaca", "Iron Rose", "Red Molotov", "ChillFlame"]
+DEFAULT_BACKGROUNDS = ["any", "Black", "French Violet", "Dark Green", "Deep Black", "Silver"]
+DEFAULT_SYMBOLS = ["any", "Straw Hat", "Venetian Mask", "Narcissus", "Golden Star", "Ruby Ring"]
+
+
 # ========= LOG =========
 def log(msg, color=Fore.WHITE):
     print(color + msg)
@@ -515,12 +1147,27 @@ def signal_mode_menu():
     return InlineKeyboardMarkup(inline_keyboard=controls)
 
 
+def hunt_control_keyboard():
+    """Клавиатура для контроля поиска (пауза/продолжение)"""
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="⏸ Остановить поиск", callback_data="hunt_pause"),
+                InlineKeyboardButton(text="▶️ Продолжить поиск", callback_data="hunt_resume")
+            ]
+        ]
+    )
+
+
 def user_menu_keyboard(is_admin_user: bool):
     buttons = [
         [InlineKeyboardButton(text="⚡ Быстрый старт", callback_data="um_quickstart")],
         [
             InlineKeyboardButton(text="👤 Профиль", callback_data="um_profile"),
             InlineKeyboardButton(text="🏅 Лидерборд", callback_data="um_leaderboard"),
+        ],
+        [
+            InlineKeyboardButton(text="🏆 Мои достижения", callback_data="um_achievements"),
         ],
         [
             InlineKeyboardButton(text="🎯 Челлендж", callback_data="um_challenge"),
@@ -616,9 +1263,38 @@ def hunt_collection_keyboard():
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
-def hunt_options_keyboard(prefix: str, options: list[str]):
-    rows = [[InlineKeyboardButton(text=f"{opt}", callback_data=f"um_{prefix}_{idx}")] for idx, opt in enumerate(options)]
-    rows.append([InlineKeyboardButton(text="⬅️ Назад", callback_data="um_huntmenu")])
+def hunt_options_keyboard(prefix: str, options: list[str], page: int = 0):
+    """Клавиатура для выбора опций hunt с поддержкой пагинации (по 10 опций на страницу)"""
+    items_per_page = 10
+    total_pages = (len(options) + items_per_page - 1) // items_per_page
+    
+    # Безопасность: проверяем границы страницы
+    if page < 0:
+        page = 0
+    if page >= total_pages:
+        page = total_pages - 1
+    
+    start_idx = page * items_per_page
+    end_idx = start_idx + items_per_page
+    page_options = options[start_idx:end_idx]
+    
+    rows = [[InlineKeyboardButton(text=f"{opt}", callback_data=f"um_{prefix}_{start_idx + idx}")] 
+            for idx, opt in enumerate(page_options)]
+    
+    # Кнопки навигации
+    nav_buttons = []
+    if page > 0:
+        nav_buttons.append(InlineKeyboardButton(text="⬅️ Назад", callback_data=f"um_{prefix}_page_{page - 1}"))
+    if page < total_pages - 1:
+        nav_buttons.append(InlineKeyboardButton(text=f"Страница {page + 1}/{total_pages}", callback_data=f"um_{prefix}_page_{page}"))
+        nav_buttons.append(InlineKeyboardButton(text="Далее ➡️", callback_data=f"um_{prefix}_page_{page + 1}"))
+    elif page > 0:
+        nav_buttons.append(InlineKeyboardButton(text=f"Страница {page + 1}/{total_pages}", callback_data=f"um_{prefix}_page_{page}"))
+    
+    if nav_buttons:
+        rows.append(nav_buttons)
+    
+    rows.append([InlineKeyboardButton(text="⬅️ В меню hunt", callback_data="um_huntmenu")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
@@ -708,23 +1384,55 @@ async def start_cmd(message: types.Message):
                     except Exception as e:
                         logging.warning("Cannot send event bonus to %s: %s", ref_uid, e)
             save_gamification()
+    
+    # Проверка новый ли пользователь
+    subs_count = len(SUBSCRIPTIONS.get(uid, []))
+    is_new_user = subs_count == 0
+    
     bot_link = (await bot.get_me()).username
     ref_link = f"https://t.me/{bot_link}?start=ref_{uid}"
-    welcome = (
-        "🚀 <b>Добро пожаловать в @Gift_NFT_Scaner!</b>\n\n"
-        "<b>Команды:</b>\n"
-        "<blockquote>/profile</blockquote>\n"
-        "<blockquote>/leaderboard</blockquote>\n"
-        "<blockquote>/challenge</blockquote>\n"
-        "<blockquote>/mysubs</blockquote>\n"
-        "<blockquote>/toprefs</blockquote>\n\n"
-        f"<b>Твоя реферальная ссылка:</b> {ref_link}\n\n"
-    )
+    
+    if is_new_user:
+        # Специальное приветствие для новых пользователей с рекомендацией туториала
+        welcome = (
+            "🚀 <b>Добро пожаловать в Gift_NFT_Scaner!</b>\n"
+            "────────────────────\n\n"
+            "🎓 <b>Это ваш первый визит!</b>\n\n"
+            "Мы подготовили для вас полный туториал, который за 5 минут научит:\n"
+            "✅ Создавать подписки на NFT\n"
+            "✅ Использовать PRO hunts\n"
+            "✅ Участвовать в челленджах\n"
+            "✅ Соревноваться в лидерборде\n"
+            "✅ Приглашать друзей и получать награды\n\n"
+            f"<b>Ваша реферальная ссылка:</b> {ref_link}\n"
+            "<i>(Приглашайте друзей и получайте бесплатный PRO!)</i>\n\n"
+            "<b>🎯 Выберите:</b>"
+        )
+        keyboard = InlineKeyboardMarkup(
+            inline_keyboard=[
+                [InlineKeyboardButton(text="📖 Начать туториал (5 мин)", callback_data="tut_step_1")],
+                [InlineKeyboardButton(text="⚡ Перейти к боту", callback_data="um_home")],
+            ]
+        )
+    else:
+        # Обычное приветствие для вернувшихся пользователей
+        welcome = (
+            "🚀 <b>С возвращением в @Gift_NFT_Scaner!</b>\n\n"
+            f"<b>Твоя реферальная ссылка:</b> {ref_link}\n\n"
+            "<b>Быстрые команды:</b>\n"
+            "<code>/mysubs</code> — подписки\n"
+            "<code>/myhunts</code> — PRO hunts\n"
+            "<code>/profile</code> — профиль\n"
+            "<code>/challenge</code> — челлендж дня\n"
+            "<code>/leaderboard</code> — лидерборд\n"
+        )
+        keyboard = user_menu_keyboard(is_admin(message.from_user.id))
+    
     await message.answer(
         welcome,
         parse_mode="HTML",
         disable_web_page_preview=False,
-        reply_markup=user_menu_keyboard(is_admin(message.from_user.id)),
+        reply_markup=keyboard,
     )
 
 
@@ -853,7 +1561,7 @@ async def user_menu_callbacks(call: types.CallbackQuery):
         collection = action.replace("hwc_", "", 1)
         state = WIZARD_STATE.setdefault(user_id, {})
         state.update({"mode": "hunt_btn", "collection": collection})
-        model_options = ["any", "Hong Long", "Alpaca", "Iron Rose", "Red Molotov", "ChillFlame"]
+        model_options = COLLECTION_MODELS.get(collection, DEFAULT_MODELS)
         state["model_options"] = model_options
         await call.message.edit_text(
             f"Шаг 2/4: подарок <b>{html.escape(collection)}</b>\nВыберите модель:",
@@ -862,16 +1570,50 @@ async def user_menu_callbacks(call: types.CallbackQuery):
         )
         await call.answer()
         return
+    # ======== PAGINATION FOR HUNT OPTIONS ========
+    if action.startswith("hwm_page_"):
+        page = int(action.replace("hwm_page_", "", 1))
+        state = WIZARD_STATE.get(user_id, {})
+        model_options = state.get("model_options", DEFAULT_MODELS)
+        await call.message.edit_text(
+            f"Шаг 2/4: подарок <b>{html.escape(state.get('collection', 'unknown'))}</b>\nВыберите модель:",
+            parse_mode="HTML",
+            reply_markup=hunt_options_keyboard("hwm", model_options, page),
+        )
+        await call.answer()
+        return
+    if action.startswith("hwb_page_"):
+        page = int(action.replace("hwb_page_", "", 1))
+        state = WIZARD_STATE.get(user_id, {})
+        bg_options = state.get("bg_options", DEFAULT_BACKGROUNDS)
+        await call.message.edit_text(
+            "Шаг 3/4: выберите фон:",
+            reply_markup=hunt_options_keyboard("hwb", bg_options, page),
+        )
+        await call.answer()
+        return
+    if action.startswith("hws_page_"):
+        page = int(action.replace("hws_page_", "", 1))
+        state = WIZARD_STATE.get(user_id, {})
+        symbol_options = state.get("symbol_options", DEFAULT_SYMBOLS)
+        await call.message.edit_text(
+            "Шаг 4/4: выберите символ:",
+            reply_markup=hunt_options_keyboard("hws", symbol_options, page),
+        )
+        await call.answer()
+        return
+    # ======== END PAGINATION ========
     if action.startswith("hwm_"):
         state = WIZARD_STATE.get(user_id, {})
-        options = state.get("model_options", [])
+        options = state.get("model_options", DEFAULT_MODELS)
         try:
             idx = int(action.replace("hwm_", "", 1))
             state["model"] = normalize_hunt_value(options[idx])
         except Exception:
             await call.answer("Некорректный выбор модели", show_alert=True)
             return
-        bg_options = ["any", "Black", "French Violet", "Dark Green", "Deep Black", "Silver"]
+        collection = state.get("collection", "")
+        bg_options = COLLECTION_BACKGROUNDS.get(collection, DEFAULT_BACKGROUNDS)
         state["bg_options"] = bg_options
         await call.message.edit_text(
             "Шаг 3/4: выберите фон:",
@@ -881,14 +1623,14 @@ async def user_menu_callbacks(call: types.CallbackQuery):
         return
     if action.startswith("hwb_"):
         state = WIZARD_STATE.get(user_id, {})
-        options = state.get("bg_options", [])
+        options = state.get("bg_options", DEFAULT_BACKGROUNDS)
         try:
             idx = int(action.replace("hwb_", "", 1))
             state["bg"] = normalize_hunt_value(options[idx])
         except Exception:
             await call.answer("Некорректный выбор фона", show_alert=True)
             return
-        symbol_options = ["any", "Straw Hat", "Venetian Mask", "Narcissus", "Golden Star", "Ruby Ring"]
+        symbol_options = DEFAULT_SYMBOLS
         state["symbol_options"] = symbol_options
         await call.message.edit_text(
             "Шаг 4/4: выберите символ:",
@@ -898,7 +1640,7 @@ async def user_menu_callbacks(call: types.CallbackQuery):
         return
     if action.startswith("hws_"):
         state = WIZARD_STATE.get(user_id, {})
-        options = state.get("symbol_options", [])
+        options = state.get("symbol_options", DEFAULT_SYMBOLS)
         try:
             idx = int(action.replace("hws_", "", 1))
             symbol = normalize_hunt_value(options[idx])
@@ -939,6 +1681,9 @@ async def user_menu_callbacks(call: types.CallbackQuery):
     elif action == "profile":
         text = build_profile_message(user_id)
         reply_markup = profile_keyboard(user_id)
+    elif action == "achievements":
+        text = build_achievements_message(user_id)
+        reply_markup = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="⬅️ Назад", callback_data="um_profile")]])
     elif action == "leaderboard":
         text = build_leaderboard_message()
         top = get_leaderboard_top(10)
@@ -1080,12 +1825,16 @@ async def user_menu_callbacks(call: types.CallbackQuery):
         return
 
     try:
-        await call.message.edit_text(
-            text,
-            parse_mode="HTML",
-            disable_web_page_preview=True,
-            reply_markup=reply_markup,
-        )
+        if action == "home":
+            await bot.delete_message(call.message.chat.id, call.message.message_id)
+            await call.message.answer(text, parse_mode="HTML", disable_web_page_preview=True, reply_markup=reply_markup)
+        else:
+            await call.message.edit_text(
+                text,
+                parse_mode="HTML",
+                disable_web_page_preview=True,
+                reply_markup=reply_markup,
+            )
     except TelegramBadRequest as e:
         if "message is not modified" not in str(e).lower():
             raise
@@ -1098,15 +1847,19 @@ async def leaderboard_profile_callback(call: types.CallbackQuery):
     if not uid.isdigit():
         await call.answer("Некорректный ID профиля", show_alert=True)
         return
-    text = build_profile_message(uid, update_activity=False)
+    text = "👤 <b>Профиль охотника</b>\n────────────────────\n" + build_profile_message(uid, update_activity=False)
     back_markup = InlineKeyboardMarkup(
         inline_keyboard=[
             [InlineKeyboardButton(text="⬅️ К лидерборду", callback_data="lb_back")],
             [InlineKeyboardButton(text="🏠 В меню", callback_data="um_home")],
         ]
     )
+    photo_id = await get_user_profile_photo(int(uid))
     try:
-        await call.message.edit_text(text, parse_mode="HTML", disable_web_page_preview=True, reply_markup=back_markup)
+        if photo_id and len(text) <= 1024:
+            await call.message.reply_photo(photo_id, caption=text, parse_mode="HTML", reply_markup=back_markup)
+        else:
+            await call.message.edit_text(text, parse_mode="HTML", disable_web_page_preview=True, reply_markup=back_markup)
     except TelegramBadRequest as e:
         if "message is not modified" not in str(e).lower():
             raise
@@ -1118,10 +1871,57 @@ async def leaderboard_back_callback(call: types.CallbackQuery):
     top = get_leaderboard_top(10)
     markup = build_leaderboard_keyboard(top) if top else user_menu_keyboard(is_admin(call.from_user.id))
     try:
-        await call.message.edit_text(build_leaderboard_message(), parse_mode="HTML", disable_web_page_preview=True, reply_markup=markup)
+        await bot.delete_message(call.message.chat.id, call.message.message_id)
+        await call.message.answer(build_leaderboard_message(), parse_mode="HTML", disable_web_page_preview=True, reply_markup=markup)
+    except TelegramBadRequest as e:
+        # If delete fails, try edit
+        try:
+            await call.message.edit_text(build_leaderboard_message(), parse_mode="HTML", disable_web_page_preview=True, reply_markup=markup)
+        except TelegramBadRequest as e2:
+            if "message is not modified" not in str(e2).lower():
+                raise
+    await call.answer()
+
+
+@dp.callback_query(F.data.startswith("trp_"))
+async def toprefs_profile_callback(call: types.CallbackQuery):
+    uid = call.data.replace("trp_", "", 1)
+    if not uid.isdigit():
+        await call.answer("Некорректный ID профиля", show_alert=True)
+        return
+    text = "👤 <b>Профиль охотника</b>\n────────────────────\n" + build_profile_message(uid, update_activity=False)
+    back_markup = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="⬅️ К TOP реферерам", callback_data="tr_back")],
+            [InlineKeyboardButton(text="🏠 В меню", callback_data="um_home")],
+        ]
+    )
+    photo_id = await get_user_profile_photo(int(uid))
+    try:
+        if photo_id and len(text) <= 1024:
+            await call.message.reply_photo(photo_id, caption=text, parse_mode="HTML", reply_markup=back_markup)
+        else:
+            await call.message.edit_text(text, parse_mode="HTML", disable_web_page_preview=True, reply_markup=back_markup)
     except TelegramBadRequest as e:
         if "message is not modified" not in str(e).lower():
             raise
+    await call.answer()
+
+
+@dp.callback_query(F.data == "tr_back")
+async def toprefs_back_callback(call: types.CallbackQuery):
+    top = get_toprefs_top(10)
+    markup = build_toprefs_keyboard(top) if top else user_menu_keyboard(is_admin(call.from_user.id))
+    try:
+        await bot.delete_message(call.message.chat.id, call.message.message_id)
+        await call.message.answer(build_toprefs_message(), parse_mode="HTML", disable_web_page_preview=True, reply_markup=markup)
+    except TelegramBadRequest as e:
+        # If delete fails, try edit
+        try:
+            await call.message.edit_text(build_toprefs_message(), parse_mode="HTML", disable_web_page_preview=True, reply_markup=markup)
+        except TelegramBadRequest as e2:
+            if "message is not modified" not in str(e2).lower():
+                raise
     await call.answer()
 
 
@@ -1140,28 +1940,76 @@ def build_profile_message(uid: str, update_activity: bool = True):
     profile = touch_user(uid) if update_activity else get_user_profile(uid)
     if update_activity:
         save_gamification()
+    
+    # Calculate positions
+    users = GAMIFICATION.get("users", {})
+    leaderboard = sorted(users.items(), key=lambda kv: (kv[1].get("rare_alerts_received", 0), kv[1].get("alerts_received", 0)), reverse=True)
+    leaderboard_positions = {user_uid: i+1 for i, (user_uid, _) in enumerate(leaderboard)}
+    leaderboard_pos = leaderboard_positions.get(uid, "Вне топ 100")
+    
+    toprefs = sorted(users.items(), key=lambda kv: kv[1].get("weekly_referrals", 0), reverse=True)
+    toprefs_positions = {user_uid: i+1 for i, (user_uid, _) in enumerate(toprefs)}
+    toprefs_pos = toprefs_positions.get(uid, "Вне топ 100")
+    
     rank_score = profile.get("rare_alerts_received", 0)
-    if rank_score >= 50:
+    if rank_score >= 3000:
         rank = "🏆 Legend"
-    elif rank_score >= 20:
+    elif rank_score >= 1500:
         rank = "🥇 Gold"
-    elif rank_score >= 10:
+    elif rank_score >= 750:
         rank = "🥈 Silver"
     else:
         rank = "🥉 Bronze"
     pro_status = format_pro_status(profile)
+    hits = profile.get("hits", [])
+    total_nfts = len(hits)
+    unique_collections = len(set(h.get("collection") for h in hits)) if hits else 0
+    best_percent = min((h.get("model_percent", 100) for h in hits), default=100)
+    avg_percent = round(sum(h.get("model_percent", 0) for h in hits) / total_nfts, 2) if total_nfts else 0
+    subs_count = len(SUBSCRIPTIONS.get(uid, {}))
+    level = profile.get("alerts_received", 0) // 10 + 1
+
+    # achievements
+    achievements = []
+    if profile.get('streak', 0) >= 7:
+        achievements.append("🔥 Огненный стрик!")
+    if total_nfts >= 1000:
+        achievements.append("🏆 Мастер находок!")
+    if unique_collections >= 10:
+        achievements.append("🌍 Коллекционер!")
+    if profile.get('alerts_received', 0) >= 1000:
+        achievements.append("💪 Опытный охотник")
+    if profile.get('rare_alerts_received', 0) >= 200:
+        achievements.append("✨ Повелитель редких")
+    if profile.get('referrals', 0) >= 10:
+        achievements.append("🤝 Привлекатор")
+    if profile.get('weekly_referrals', 0) >= 5:
+        achievements.append("⚡ Реферальная неделя")
+    black_hits = sum(1 for h in hits if h.get('black_bg'))
+    if black_hits >= 75:
+        achievements.append("🖤 Черный охотник")
+
+    achievements_str = " | ".join(achievements) if achievements else "Нет достижений"
     msg = (
-        "👤 <b>Профиль охотника</b>\n"
-        "────────────────────\n"
         f"🏆 Ранг: <b>{rank}</b>\n"
+        f"⭐ Уровень: <b>{level}</b>\n"
+        f"📊 Место в лидерборде: <b>{leaderboard_pos}</b>\n"
+        f"📈 Место в ТОП рефов: <b>{toprefs_pos}</b>\n"
         f"🔔 Получено алертов: <b>{profile.get('alerts_received', 0)}</b>\n"
         f"🔥 Редких алертов: <b>{profile.get('rare_alerts_received', 0)}</b>\n"
         f"⚡️ Активность (streak): <b>{profile.get('streak', 0)}</b> дн.\n"
         f"📣 Рефералы: <b>{profile.get('referrals', 0)}</b> (за неделю: {profile.get('weekly_referrals', 0)})\n"
         f"💎 PRO Hunters: <b>{pro_status}</b>\n"
-        f"🎯 Активных PRO hunts: <b>{len(profile.get('hunts', []))}</b>"
+        f"🎯 Активных PRO hunts: <b>{len(profile.get('hunts', []))}</b>\n"
+        f"🎨 Подписок: <b>{subs_count}</b>\n"
+        f"🏅 Найдено NFT: <b>{total_nfts}</b>\n"
+        f"🌟 Уникальных коллекций: <b>{unique_collections}</b>\n"
+        f"💯 Лучший процент: <b>{best_percent}%</b>\n"
+        f"📊 Средний процент: <b>{avg_percent}%</b>\n"
+        f"🎖️ <b>Мои Достижения:</b>\n"
+        f"───────────────"
+        f"<blockquote>{achievements_str}</blockquote>"
     )
-    hits = profile.get("hits", [])
     if hits:
         top5 = sorted(hits, key=lambda x: x.get("model_percent", 100))[:5]
         msg += "\n\n🏆 <b>ТОП 5 найденных NFT по подписке:</b>\n"
@@ -1172,6 +2020,82 @@ def build_profile_message(uid: str, update_activity: bool = True):
                 f"{h.get('model_percent', 0)}%\n"
             )
     return msg
+
+
+def build_achievements_message(uid: str):
+    profile = get_user_profile(uid)
+    hits = profile.get("hits", [])
+    total_nfts = len(hits)
+    unique_collections = len(set(h.get("collection") for h in hits)) if hits else 0
+    black_hits = sum(1 for h in hits if h.get("black_bg"))
+
+    achievements = []
+    if profile.get("streak", 0) >= 7:
+        achievements.append("🔥 Огненный стрик! (7+ дней активности)")
+    else:
+        achievements.append("❌ Огненный стрик: пройди 7 дней активности подряд")
+
+    if total_nfts >= 500:
+        achievements.append("🏆 Мастер находок! (500+ найденных NFT)")
+    else:
+        achievements.append("❌ Мастер находок: найди 500+ NFT")
+
+    if unique_collections >= 10:
+        achievements.append("🌍 Коллекционер! (10+ уникальных коллекций)")
+    else:
+        achievements.append("❌ Коллекционер: собери NFT из 10+ коллекций")
+
+    if profile.get("alerts_received", 0) >= 1000:
+        achievements.append("💪 Опытный охотник (1000+ алертов)")
+    else:
+        achievements.append("❌ Опытный охотник: получи 1000+ алертов")
+
+    if profile.get("rare_alerts_received", 0) >= 200:
+        achievements.append("✨ Повелитель редких (200+ редких алертов)")
+    else:
+        achievements.append("❌ Повелитель редких: 200+ редких алертов")
+
+    if profile.get("referrals", 0) >= 10:
+        achievements.append("🤝 Привлекатор (10+ рефералов)")
+    else:
+        achievements.append("❌ Привлекатор: приведи 10+ людей")
+
+    if profile.get("weekly_referrals", 0) >= 5:
+        achievements.append("⚡ Реферальная неделя (5+ рефералов за неделю)")
+    else:
+        achievements.append("❌ Реферальная неделя: 5+ рефералов за неделю")
+
+    if black_hits >= 75:
+        achievements.append("🖤 Черный охотник (75+ черных NFT)")
+    else:
+        achievements.append("❌ Черный охотник: найди 75+ черных NFT")
+
+    text = (
+        "🏆 <b>Мои достижения</b>\n"
+        "────────────────────\n"
+        f"🎯 Уровень: {profile.get('alerts_received', 0)} алертов, {profile.get('rare_alerts_received', 0)} редких\n"
+        f"💎 Уникальные коллекции: {unique_collections} / 10\n"
+        f"📦 Найдено NFT: {total_nfts} / 500\n"
+        f"🖤 Черные NFT: {black_hits} / 75\n"
+        "────────────────────\n"
+        ".\n".join(achievements)
+    )
+    return text
+
+
+async def get_user_profile_photo(user_id: int):
+    try:
+        photos = await bot.get_user_profile_photos(user_id, limit=1)
+        if photos.photos:
+            # Use medium size instead of largest to avoid too big avatar
+            sizes = photos.photos[0]
+            if len(sizes) > 1:
+                return sizes[1].file_id  # medium size
+            else:
+                return sizes[0].file_id
+    except Exception as e:
+        logging.warning(f"Failed to get profile photo for {user_id}: {e}")
+    return None
 
 
 @dp.message(Command("leaderboard"))
@@ -1204,28 +2128,44 @@ def build_leaderboard_message():
     msg = "🏅 <b>Лидерборд охотников</b>\n"
     for i, (uid, p) in enumerate(top, 1):
         msg += (
-            f"{i}) <code>{uid}</code> — Rare: {p.get('rare_alerts_received', 0)}, "
-            f"Alerts: {p.get('alerts_received', 0)}, <i>Профиль: кнопка ниже</i>\n"
+            f"{i}) <a href=\"tg://user?id={uid}\">{uid}</a> — Rare: {p.get('rare_alerts_received', 0)}, "
+            f"Alerts: {p.get('alerts_received', 0)}\n"
         )
     return msg
 
 
 @dp.message(Command("toprefs"))
 async def toprefs_cmd(message: types.Message):
-    await message.answer(build_toprefs_message(), parse_mode="HTML")
+    top = get_toprefs_top(10)
+    await message.answer(
+        build_toprefs_message(),
+        parse_mode="HTML",
+        reply_markup=build_toprefs_keyboard(top) if top else None,
+    )
+
+
+def get_toprefs_top(limit: int = 10):
+    ensure_weekly_tracking()
+    users = GAMIFICATION.get("users", {})
+    return sorted(users.items(), key=lambda kv: kv[1].get("weekly_referrals", 0), reverse=True)[:limit]
+
+
+def build_toprefs_keyboard(top):
+    rows = []
+    for i, (uid, _) in enumerate(top, 1):
+        rows.append([InlineKeyboardButton(text=f"👤 Профиль #{i}", callback_data=f"trp_{uid}")])
+    rows.append([InlineKeyboardButton(text="⬅️ Назад в меню", callback_data="um_home")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 def build_toprefs_message():
-    ensure_weekly_tracking()
-    users = GAMIFICATION.get("users", {})
-    if not users:
+    top = get_toprefs_top(10)
+    if not top:
         return "Реферальная таблица пока пустая."
     week_key = GAMIFICATION.get("week_key", current_week_key())
-    top = sorted(users.items(), key=lambda kv: kv[1].get("weekly_referrals", 0), reverse=True)[:10]
-    msg = f"📣 <b>TOP рефереров недели ({week_key})</b>\n────────────────────\n"
+    msg = f"📣 <b>TOP рефереров недели ({week_key})</b>\n"
     for i, (uid, p) in enumerate(top, 1):
-        msg += f"{i}) <code>{uid}</code> — week: <b>{p.get('weekly_referrals', 0)}</b> | total: <b>{p.get('referrals', 0)}</b>\n"
-    msg += "────────────────────"
+        msg += f"{i}) <a href=\"tg://user?id={uid}\">{uid}</a> — week: <b>{p.get('weekly_referrals', 0)}</b> | total: <b>{p.get('referrals', 0)}</b>\n"
     return msg
 
 
@@ -1251,14 +2191,276 @@ def profile_keyboard(uid: str):
     )
 
 
+def tutorial_step_1_keyboard():
+    """Шаг 1: Введение в подписки"""
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="📖 Подробнее о подписках", callback_data="tut_step1_learn")],
+            [InlineKeyboardButton(text="✨ Создать подписку сейчас", callback_data="um_sub_wizard_start")],
+            [InlineKeyboardButton(text="➡️ Следующий шаг", callback_data="tut_step_2")],
+            [InlineKeyboardButton(text="⬅️ Пропустить туториал", callback_data="um_home")],
+        ]
+    )
+
+
+def tutorial_step_2_keyboard(is_pro: bool):
+    """Шаг 2: PRO hunts"""
+    buttons = [
+        [InlineKeyboardButton(text="📖 Что такое PRO hunt?", callback_data="tut_step2_learn")],
+    ]
+    if is_pro:
+        buttons.append([InlineKeyboardButton(text="🎯 Создать PRO hunt сейчас", callback_data="um_hunt_wizard_start")])
+    else:
+        buttons.append([InlineKeyboardButton(text="⭐ Как получить PRO?", callback_data="tut_step2_pro")])
+    buttons.extend([
+        [InlineKeyboardButton(text="➡️ Следующий шаг", callback_data="tut_step_3")],
+        [InlineKeyboardButton(text="⬅️ Пропустить туториал", callback_data="um_home")],
+    ])
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
+def tutorial_step_3_keyboard():
+    """Шаг 3: Челленджи"""
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="📖 Как работают челленджи?", callback_data="tut_step3_learn")],
+            [InlineKeyboardButton(text="🎮 Открыть челлендж сейчас", callback_data="um_challenge")],
+            [InlineKeyboardButton(text="➡️ Следующий шаг", callback_data="tut_step_4")],
+            [InlineKeyboardButton(text="⬅️ Пропустить туториал", callback_data="um_home")],
+        ]
+    )
+
+
+def tutorial_step_4_keyboard():
+    """Шаг 4: Профиль и лидерборд"""
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="👤 Мой профиль", callback_data="um_profile")],
+            [InlineKeyboardButton(text="🏅 Лидерборд", callback_data="um_leaderboard")],
+            [InlineKeyboardButton(text="📣 TOP рефов", callback_data="um_toprefs")],
+            [InlineKeyboardButton(text="➡️ Завершить туториал", callback_data="tut_step_5")],
+            [InlineKeyboardButton(text="⬅️ Пропустить туториал", callback_data="um_home")],
+        ]
+    )
+
+
+def tutorial_step_5_keyboard():
+    """Шаг 5: Завершение туториала"""
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="🔔 Мои подписки", callback_data="um_mysubs")],
+            [InlineKeyboardButton(text="🎯 Мои PRO hunts", callback_data="um_myhunts")],
+            [InlineKeyboardButton(text="👤 Мой профиль", callback_data="um_profile")],
+            [InlineKeyboardButton(text="🏠 Главное меню", callback_data="um_home")],
+        ]
+    )
+
+
+def build_tutorial_step_1():
+    """Туториал шаг 1: Подписки"""
+    return (
+        "🎓 <b>ТУТОРИАЛ: Шаг 1 из 5</b>\n"
+        "────────────────────\n\n"
+        "<b>📌 Что такое ПОДПИСКИ?</b>\n\n"
+        "Подписки — это ваш личный фильтр для отслеживания NFT!\n\n"
+        "Вы можете создать подписку на:\n"
+        "• 🎁 Конкретный подарок (коллекцию) или все сразу\n"
+        "• 🧬 Максимальный процент редкости модели (например, ≤1%)\n"
+        "• 🖤 Только чёрные фоны (опционально)\n\n"
+        "<b>Пример:</b>\n"
+        "Подписка: Collection=<code>all</code>, max_percent=<code>1.0%</code>, black_only=<code>Нет</code>\n"
+        "↓\n"
+        "Вы получите алерт со ВСЕМИ NFT с моделью ≤1% из любой коллекции\n\n"
+        "<b>💡 Совет:</b> Начните с простую подписку на все коллекции с max_percent=1-2%"
+    )
+
+
+def build_tutorial_step_1_learn():
+    """Детальное объяснение шага 1"""
+    return (
+        "📖 <b>ПОДРОБНЕЕ О ПОДПИСКАХ</b>\n"
+        "────────────────────\n\n"
+        "<b>1️⃣ Выбор коллекции:</b>\n"
+        "   • <code>all</code> — следить за всеми подарками\n"
+        "   • <code>ChillFlame</code> — только за этой коллекцией\n"
+        "   • И другие коллекции...\n\n"
+        "<b>2️⃣ Выбор max_percent:</b>\n"
+        "   • <code>0.5%</code> — 🔥 Супер редкие (очень мало алертов)\n"
+        "   • <code>1.0%</code> — 💎 Редкие\n"
+        "   • <code>2.0%</code> — ✨ Среднее (много алертов)\n"
+        "   • <code>3.0%</code> — 📊 Частые\n\n"
+        "<b>3️⃣ Режим чёрного фона:</b>\n"
+        "   • <code>Да</code> 🖤 — только NFT с чёрным фоном\n"
+        "   • <code>Нет</code> ✨ — все фоны\n\n"
+        "<b>📝 Как создать подписку:</b>\n"
+        "Используйте кнопку <b>✨ Конструктор подписки</b> в меню\n"
+        "или команду: <code>/subscribe all 1.0 0</code>\n\n"
+        "💡 <b>Можно создать несколько подписок!</b>\n"
+        "Например:\n"
+        "  1) all, 1% (очень редкие)\n"
+        "  2) ChillFlame, 2% (редкие из ChillFlame)\n"
+        "  3) MoodPack, 3%, черный фон только"
+    )
+
+
+def build_tutorial_step_2(is_pro: bool):
+    """Туториал шаг 2: PRO hunts"""
+    base = (
+        "🎓 <b>ТУТОРИАЛ: Шаг 2 из 5</b>\n"
+        "────────────────────\n\n"
+        "<b>🎯 Что такое PRO HUNTS?</b>\n\n"
+        "PRO hunts — это <b>точный поиск по 4 параметрам одновременно</b>:\n"
+        "• 🎁 Коллекция\n"
+        "• 🧬 Модель (точное имя, например 'Eye of Sauron')\n"
+        "• 🎨 Фон (точный цвет, например 'Black')\n"
+        "• 🔣 Символ (точный символ)\n\n"
+        "<b>Когда PRO hunt срабатывает?</b>\n"
+        "Только когда найден NFT, который ТОЧНО совпадает со ВСЕМИ параметрами!\n\n"
+        "<b>Пример:</b>\n"
+        "PRO hunt: model='Eye of Sauron' + bg='Black' + symbol='Straw Hat'\n"
+        "↓\n"
+        "Алерт <b>ТОЛЬКО</b> когда все 3 параметра совпадают вместе\n\n"
+    )
+    
+    if is_pro:
+        base += (
+            "✅ <b>Вы уже имеете активный PRO!</b>\n"
+            "Вы можете создать до 20 PRO hunts прямо сейчас."
+        )
+    else:
+        base += (
+            "🔒 <b>PRO требуется для этой функции</b>\n\n"
+            "<b>Как получить PRO на 30 дней?</b>\n"
+            "1) 💰 Купить через Telegram Stars (199 XTR ≈ €1-2)\n"
+            "2) 👥 Пригласить 3 друзей через реферальную ссылку → +7 дней\n"
+            "3) ⭐ За выполнение ежедневного челленджа → +1-2 дня\n"
+            "4) 🎁 Получить от администратора"
+        )
+    
+    return base
+
+
+def build_tutorial_step_2_pro():
+    """Детальное объяснение как получить PRO"""
+    return (
+        "⭐ <b>КАК ПОЛУЧИТЬ PRO HUNTERS?</b>\n"
+        "────────────────────\n\n"
+        "<b>Способ 1️⃣ — КУПИТЬ (Самый быстрый)</b>\n"
+        "• 199 Telegram Stars (~€1-2)\n"
+        "• 30 дней полного доступа\n"
+        "• Кнопка <b>⭐ Купить PRO</b> в главном меню\n\n"
+        "<b>Способ 2️⃣ — РЕФЕРАЛЫ (Лучший способ)</b>\n"
+        "• Пригласите 3 друзей по вашей ссылке\n"
+        "• Получите автоматически +7 дней PRO\n"
+        "• Каждые следующие 3 друга = ещё +7 дней\n"
+        "• Способ: поделитесь реф.ссылкой из <b>Главное меню</b>\n"
+        "• Ваша ссылка всегда в <b>Профиле</b> 👤\n\n"
+        "<b>Способ 3️⃣ — ЧЕЛЛЕНДЖИ (Ежедневно)</b>\n"
+        "• Выполняйте ежедневный челлендж\n"
+        "• Награда: +1, +2 дня PRO за выполнение\n"
+        "• Челлендж меняется каждый день\n"
+        "• Открыть: <b>🎮 Челлендж</b> или команда <code>/challenge</code>\n\n"
+        "<b>Способ 4️⃣ — ОТ АДМИНА (Редко)</b>\n"
+        "• Администратор может выдать PRO за активность\n"
+        "• За помощь боту, отзывы и идеи\n\n"
+        "💡 <b>СОВЕТ:</b> Рефералы — самый выгодный способ!\n"
+        "Приглашайте друзей и получайте бесконечный PRO"
+    )
+
+
+def build_tutorial_step_3():
+    """Туториал шаг 3: Челленджи"""
+    ch = current_daily_challenge()
+    return (
+        "🎓 <b>ТУТОРИАЛ: Шаг 3 из 5</b>\n"
+        "────────────────────\n\n"
+        "<b>🎮 Что такое ЕЖЕДНЕВНЫЙ ЧЕЛЛЕНДЖ?</b>\n\n"
+        "Каждый день на вас ждёт новая миссия с награной в PRO дни!\n\n"
+        "<b>Как это работает?</b>\n"
+        "1) Вам выдаётся случайный челлендж с условиями\n"
+        "2) Вы нажимаете <b>✅ Принять челлендж</b>\n"
+        "3) Вы ловите NFT, который подходит условиям\n"
+        "4) Приложение автоматически учитывает это\n"
+        "5) Когда ловите подходящий NFT → получается награда в PRO\n\n"
+        "<b>📋 Пример сегодняшнего челленджа:</b>\n"
+        f"<b>Название:</b> {ch.get('title', 'Challenge')}\n"
+        f"<b>Описание:</b> <i>{ch.get('tagline', '...')}</i>\n"
+        f"<b>Условие:</b> Model ≤ {ch.get('max_percent', 1)}% "
+        f"{'+ Black BG' if ch.get('black_only') else ''}\n"
+        f"<b>Награда:</b> +{ch.get('reward_days', 1)} дн. PRO\n\n"
+        "<b>💡 Совет:</b> Принимайте челлендж каждый день!\n"
+        "Это просто — вы ловите NFT как обычно, "
+        "просто убедитесь что приняли челлендж"
+    )
+
+
+def build_tutorial_step_4():
+    """Туториал шаг 4: Профиль и рейтинг"""
+    return (
+        "🎓 <b>ТУТОРИАЛ: Шаг 4 из 5</b>\n"
+        "────────────────────\n\n"
+        "<b>👤 ПРОФИЛЬ И РЕЙТИНГИ</b>\n\n"
+        "<b>📊 Что показывает профиль?</b>\n"
+        "• 🏆 Ранг (Bronze → Silver → Gold → Legend)\n"
+        "• 🔔 Кол-во полученных алертов\n"
+        "• 🔥 Кол-во редких находок\n"
+        "• ⚡ Streak — дни активности подряд\n"
+        "• 📣 Рефераллы — сколько друзей вы пригласили\n"
+        "• 💎 PRO статус и до какого числа\n"
+        "• 🎯 Активные PRO hunts\n"
+        "• 🏆 ТОП 5 найденных редких NFT\n\n"
+        "<b>🏅 ЛИДЕРБОРД</b>\n"
+        "Глобальный рейтинг охотников на основе:\n"
+        "• Количество редких находок (основной критерий)\n"
+        "• Всего полученных алертов\n"
+        "Поднимайтесь выше и попадите в ТОП! 🎯\n\n"
+        "<b>📣 TOP РЕФОВ ЗА НЕДЕЛЮ</b>\n"
+        "Рейтинг рефералов за текущую неделю.\n"
+        "Приглашайте больше друзей и займите первое место!\n\n"
+        "<b>💡 Совет:</b> Ваш ранг зависит от редких находок (🔥)\n"
+        "Ловите редкие NFT → растёт ранг → вы в топе!"
+    )
+
+
+def build_tutorial_step_5():
+    """Туториал шаг 5: Завершение"""
+    return (
+        "🎓 <b>ТУТОРИАЛ ЗАВЕРШЕН! 🎉</b>\n"
+        "────────────────────\n\n"
+        "<b>Вы узнали все основы!</b>\n\n"
+        "✅ <b>Подписки</b> — личные фильтры для отслеживания\n"
+        "✅ <b>PRO hunts</b> — точный поиск по параметрам\n"
+        "✅ <b>Челленджи</b> — получайте PRO день в день\n"
+        "✅ <b>Рейтинги</b> — соревнуйтесь с другими охотниками\n\n"
+        "<b>🚀 Дальнейшие шаги:</b>\n\n"
+        "1) <b>Создайте первую подписку</b>\n"
+        "   → Вы начнёте получать алерты\n\n"
+        "2) <b>Получите PRO через рефералов</b>\n"
+        "   → Пригласите 3 друзей = +7 дней\n\n"
+        "3) <b>Примите ежедневный челлендж</b>\n"
+        "   → Автоматически получайте PRO дни\n\n"
+        "4) <b>Поднимайтесь в лидерборде</b>\n"
+        "   → Ловите редкие NFT и займите ТОП место\n\n"
+        "<b>📝 Команды для быстрого доступа:</b>\n"
+        "<code>/mysubs</code> — управление подписками\n"
+        "<code>/myhunts</code> — управление PRO hunts\n"
+        "<code>/challenge</code> — текущий челлендж\n"
+        "<code>/profile</code> — ваш профиль\n"
+        "<code>/leaderboard</code> — лидерборд\n\n"
+        "<b>❓ Нужна помощь?</b>\n"
+        "Вернитесь к любому шагу туториала через меню "
+        "или используйте <b>⚡ Быстрый старт</b> для напоминания."
+    )
+
+
 def quickstart_keyboard():
     return InlineKeyboardMarkup(
         inline_keyboard=[
+            [InlineKeyboardButton(text="📖 Начать туториал", callback_data="tut_step_1")],
             [InlineKeyboardButton(text="✨ Создать подписку", callback_data="um_sub_wizard_start")],
-            [InlineKeyboardButton(text="🎯 Создать PRO hunt", callback_data="um_hunt_wizard_start")],
             [InlineKeyboardButton(text="🎮 Открыть челлендж", callback_data="um_challenge")],
             [InlineKeyboardButton(text="👤 Мой профиль", callback_data="um_profile")],
-            [InlineKeyboardButton(text="🔄 Обновить прогресс", callback_data="um_quickstart_refresh")],
+            [InlineKeyboardButton(text="🏠 Главное меню", callback_data="um_home")],
         ]
     )
 
@@ -1284,14 +2486,139 @@ def build_quickstart_message(uid: str):
     hunts_count = len(profile.get("hunts", []))
     pro_status = "✅ Активен" if is_pro_active(uid) else "🔒 Не активен"
     return (
-        "⚡ <b>Быстрый старт (игровой)</b>\n"
-        "Сделайте шаги и закрепитесь в топе охотников:\n\n"
+        "⚡ <b>Быстрый старт и туториал</b>\n"
+        "────────────────────\n\n"
+        "<b>📊 Ваш прогресс:</b>\n"
         f"1) Подписки: <b>{subs_count}</b> {'✅' if subs_count else '⬜'}\n"
         f"2) PRO hunts: <b>{hunts_count}</b> {'✅' if hunts_count else '⬜'}\n"
         f"3) PRO статус: <b>{pro_status}</b>\n"
         f"4) Daily streak: <b>{profile.get('streak', 0)}</b> дн.\n\n"
-        "Жмите кнопки ниже — никаких ручных команд."
+        "<b>🎓 Выберите действие:</b>\n"
+        "Нажмите <b>📖 Начать туториал</b> для обучения\n"
+        "или прямо создавайте подписку кнопкой ниже"
     )
+
+
+# ========= TUTORIAL CALLBACKS =========
+@dp.callback_query(F.data == "tut_step_1")
+async def tutorial_step_1(call: types.CallbackQuery):
+    """Туториал шаг 1: Подписки"""
+    user_id = str(call.from_user.id)
+    TUTORIAL_STATE[user_id] = 1
+    await call.message.edit_text(
+        build_tutorial_step_1(),
+        parse_mode="HTML",
+        reply_markup=tutorial_step_1_keyboard()
+    )
+    await call.answer()
+
+
+@dp.callback_query(F.data == "tut_step1_learn")
+async def tutorial_step1_learn(call: types.CallbackQuery):
+    """Подробное объяснение подписок"""
+    await call.message.edit_text(
+        build_tutorial_step_1_learn(),
+        parse_mode="HTML",
+        reply_markup=InlineKeyboardMarkup(
+            inline_keyboard=[[InlineKeyboardButton(text="⬅️ Назад к шагу 1", callback_data="tut_step_1")]]
+        )
+    )
+    await call.answer()
+
+
+@dp.callback_query(F.data == "tut_step_2")
+async def tutorial_step_2(call: types.CallbackQuery):
+    """Туториал шаг 2: PRO hunts"""
+    user_id = str(call.from_user.id)
+    TUTORIAL_STATE[user_id] = 2
+    is_pro = is_pro_active(user_id)
+    await call.message.edit_text(
+        build_tutorial_step_2(is_pro),
+        parse_mode="HTML",
+        reply_markup=tutorial_step_2_keyboard(is_pro)
+    )
+    await call.answer()
+
+
+@dp.callback_query(F.data == "tut_step2_learn")
+async def tutorial_step2_learn(call: types.CallbackQuery):
+    """Подробное объяснение PRO hunts"""
+    await call.message.edit_text(
+        build_tutorial_step_2(is_pro_active(str(call.from_user.id))),
+        parse_mode="HTML",
+        reply_markup=InlineKeyboardMarkup(
+            inline_keyboard=[[InlineKeyboardButton(text="⬅️ Назад к шагу 2", callback_data="tut_step_2")]]
+        )
+    )
+    await call.answer()
+
+
+@dp.callback_query(F.data == "tut_step2_pro")
+async def tutorial_step2_pro(call: types.CallbackQuery):
+    """Объяснение как получить PRO"""
+    await call.message.edit_text(
+        build_tutorial_step_2_pro(),
+        parse_mode="HTML",
+        reply_markup=InlineKeyboardMarkup(
+            inline_keyboard=[
+                [InlineKeyboardButton(text="⭐ Купить PRO (Stars)", callback_data="um_buypro_pay")],
+                [InlineKeyboardButton(text="⬅️ Назад к шагу 2", callback_data="tut_step_2")],
+            ]
+        )
+    )
+    await call.answer()
+
+
+@dp.callback_query(F.data == "tut_step_3")
+async def tutorial_step_3(call: types.CallbackQuery):
+    """Туториал шаг 3: Челленджи"""
+    user_id = str(call.from_user.id)
+    TUTORIAL_STATE[user_id] = 3
+    await call.message.edit_text(
+        build_tutorial_step_3(),
+        parse_mode="HTML",
+        reply_markup=tutorial_step_3_keyboard()
+    )
+    await call.answer()
+
+
+@dp.callback_query(F.data == "tut_step3_learn")
+async def tutorial_step3_learn(call: types.CallbackQuery):
+    """Подробное объяснение челленджей"""
+    await call.message.edit_text(
+        build_tutorial_step_3(),
+        parse_mode="HTML",
+        reply_markup=InlineKeyboardMarkup(
+            inline_keyboard=[[InlineKeyboardButton(text="⬅️ Назад к шагу 3", callback_data="tut_step_3")]]
+        )
+    )
+    await call.answer()
+
+
+@dp.callback_query(F.data == "tut_step_4")
+async def tutorial_step_4(call: types.CallbackQuery):
+    """Туториал шаг 4: Профиль и лидерборд"""
+    user_id = str(call.from_user.id)
+    TUTORIAL_STATE[user_id] = 4
+    await call.message.edit_text(
+        build_tutorial_step_4(),
+        parse_mode="HTML",
+        reply_markup=tutorial_step_4_keyboard()
+    )
+    await call.answer()
+
+
+@dp.callback_query(F.data == "tut_step_5")
+async def tutorial_step_5(call: types.CallbackQuery):
+    """Туториал шаг 5: Завершение"""
+    user_id = str(call.from_user.id)
+    TUTORIAL_STATE[user_id] = 5
+    await call.message.edit_text(
+        build_tutorial_step_5(),
+        parse_mode="HTML",
+        reply_markup=tutorial_step_5_keyboard()
+    )
+    await call.answer()
 
 
 @dp.message(Command("challenge"))
@@ -1725,6 +3052,22 @@ async def set_mode(call: types.CallbackQuery):
     await call.message.edit_text("⚙️ Панель админа", reply_markup=main_admin_menu())
 
 
+@dp.callback_query(F.data == "hunt_pause")
+async def hunt_pause(call: types.CallbackQuery):
+    """Обработчик кнопки паузы PRO hunt"""
+    user_id = call.from_user.id
+    HUNT_PAUSED_USERS.add(user_id)
+    await call.answer("⏸ Поиск остановлен. Вы не будете получать PRO-уведомления.", show_alert=False)
+
+
+@dp.callback_query(F.data == "hunt_resume")
+async def hunt_resume(call: types.CallbackQuery):
+    """Обработчик кнопки возобновления PRO hunt"""
+    user_id = call.from_user.id
+    HUNT_PAUSED_USERS.discard(user_id)
+    await call.answer("▶️ Поиск продолжен. Вы снова получаете PRO-уведомления.", show_alert=False)
+
+
 @dp.message(Command("subscribe"))
 async def subscribe(message: types.Message):
     parts = (message.text or "").split()
@@ -1903,19 +3246,23 @@ def owners_sort_keyboard(current: str):
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
-                InlineKeyboardButton(text=f"{'✅ ' if current == 'rare' else ''}По rare", callback_data="owners_sort_rare"),
-                InlineKeyboardButton(text=f"{'✅ ' if current == 'total' else ''}По total", callback_data="owners_sort_total"),
-                InlineKeyboardButton(text=f"{'✅ ' if current == 'ratio' else ''}По ratio", callback_data="owners_sort_ratio"),
-            ]
+                InlineKeyboardButton(text=f"{'✅ ' if current == 'rare' else ''}Rare", callback_data="owners_sort_rare"),
+                InlineKeyboardButton(text=f"{'✅ ' if current == 'total' else ''}Total", callback_data="owners_sort_total"),
+            ],
+            [
+                InlineKeyboardButton(text=f"{'✅ ' if current == 'ratio' else ''}Ratio", callback_data="owners_sort_ratio"),
+                InlineKeyboardButton(text=f"{'✅ ' if current == 'black' else ''}Black", callback_data="owners_sort_black"),
+            ],
+            [InlineKeyboardButton(text="⬅️ Назад", callback_data="dash_refresh")],
         ]
     )
 
 
 def _global_counts():
-    data = [item for items in RECENT_STATS.values() for item in items]
-    total = len(data)
-    black = sum(1 for n in data if n.get("black_bg"))
-    rare = sum(1 for n in data if n.get("black_bg") and n.get("model_percent", 100) <= 1)
+    # Статистика берется из OWNER_STATS (нагруженные владельцы), чтобы значения совпадали с рейтингом
+    total = sum(info.get("total", 0) for info in OWNER_STATS.values())
+    black = sum(info.get("black", 0) for info in OWNER_STATS.values())
+    rare = sum(info.get("rare", 0) for info in OWNER_STATS.values())
     return total, black, rare
 
 
@@ -1928,31 +3275,43 @@ def build_owners_message(sort_by: str):
             key=lambda kv: (kv[1].get("rare", 0) / max(1, kv[1].get("total", 1)), kv[1].get("total", 0)),
             reverse=True,
         )[:10]
+    elif sort_by == "black":
+        ranking = sorted(OWNER_STATS.items(), key=lambda kv: kv[1].get("black", 0), reverse=True)[:10]
     else:
         ranking = sorted(OWNER_STATS.items(), key=lambda kv: (kv[1].get("rare", 0), kv[1].get("total", 0)), reverse=True)[:10]
 
     total, black, rare = _global_counts()
-    msg = (
-        "👑 <b>OWNERS DASHBOARD v2</b>\n\n"
-        f"• 📦 Всего NFT: <b>{total}</b>\n"
-        f"• ⚫ Black: <b>{black}</b>\n"
-        f"• 🔥 RAR: <b>{rare}</b>\n"
-        f"• 🔀 Сортировка: <b>{sort_by}</b>\n"
-        "────────────\n"
-    )
+
+    msg = [
+        "👑 <b>OWNERS DASHBOARD v2</b>",
+        "────────────────────",
+        f"• 📦 Всего NFT: <b>{total}</b>",
+        f"• ⚫ Black: <b>{black}</b>",
+        f"• 🔥 Rare: <b>{rare}</b>",
+        f"• 🔍 Текущий фильтр: <b>{sort_by}</b>",
+        "",  # раздел
+        "<b>ТОП владельцев</b> (первые 10):",
+    ]
+
     for i, (owner, info) in enumerate(ranking, 1):
         owner_link = info.get("link", "")
         owner_safe = clean_html(owner)
         owner_title = f"<a href='{owner_link}'>{owner_safe}</a>" if owner_link and owner_link.startswith("https://t.me") else owner_safe
-        ratio = (info.get("rare", 0) / max(1, info.get("total", 1))) * 100
-        msg += (
-            f"<b>{i}) {owner_title}</b>\n"
-            f"• 🔥 Rare: <b>{info.get('rare', 0)}</b>\n"
-            f"• 📊 Total: <b>{info.get('total', 0)}</b>\n"
-            f"• 📈 Ratio: <b>{ratio:.1f}%</b>\n\n"
-        )
-    msg += "────────────"
-    return msg
+        total_owner = info.get("total", 0)
+        rare_owner = info.get("rare", 0)
+        black_owner = info.get("black", 0)
+        ratio = (rare_owner / total_owner) if total_owner else 0
+        msg.append(f"{i}) {owner_title}")
+        msg.append(f"   🔥 {rare_owner} | 📊 {total_owner} | ⚫ {black_owner} | 📈 {ratio:.2f}")
+        msg.append("")
+
+    if msg and msg[-1] == "":
+        msg.pop()  # убрать финальный пустой
+
+    msg.append("────────────────────")
+    msg.append("📌 Нажмите кнопку фильтра, чтобы переключить сортировку")
+
+    return "\n".join(msg)
 
 
 @dp.callback_query(F.data.startswith("owners_sort_"))
@@ -1960,7 +3319,7 @@ async def owners_sort_callback(call: types.CallbackQuery):
     if not await ensure_admin_callback(call):
         return
     sort_by = call.data.replace("owners_sort_", "")
-    if sort_by not in ("rare", "total", "ratio"):
+    if sort_by not in ("rare", "total", "ratio", "black"):
         await call.answer("Неизвестная сортировка", show_alert=True)
         return
     await call.message.edit_text(
@@ -2005,9 +3364,9 @@ def build_quick_stats(collection: str, limit: int = 10):
 
     latest = data[-limit:]
     latest_lines = []
-    for nft in reversed(latest):
+    for i, nft in enumerate(reversed(latest), 1):
         marker = "⚫" if nft.get("black_bg") else ""
-        latest_lines.append(f"{marker}<a href='{nft['link']}'>#{nft['nft_id']}</a> — {nft.get('model_percent', 0)}%")
+        latest_lines.append(f"{i}) {marker}<a href='{nft['link']}'>#{nft['nft_id']}</a> — {nft.get('model_percent', 0)}%")
 
     top_rare = sorted(
         [n for n in data if n.get("black_bg") or n.get("model_percent", 100) <= 1],
@@ -2016,24 +3375,42 @@ def build_quick_stats(collection: str, limit: int = 10):
     top_lines = []
     for idx, nft in enumerate(top_rare, 1):
         marker = "⚫" if nft.get("black_bg") else ""
-        top_lines.append(f"{idx} Место: {marker}<a href='{nft['link']}'>#{nft['nft_id']}</a> — {nft.get('model_percent', 0)}%")
+        top_lines.append(f"{idx}) {marker}<a href='{nft['link']}'>#{nft['nft_id']}</a> — {nft.get('model_percent', 0)}%")
     if not top_lines:
-        top_lines = ["нет данных"]
+        top_lines = ["Нет редких NFT"]
 
     model_values = [n.get("model_percent", 0) for n in data]
-    black_ratio = sum(1 for n in data if n.get("black_bg")) / len(data)
     black_cnt = sum(1 for n in data if n.get("black_bg"))
+    total = len(data)
+    black_ratio = black_cnt / total if total > 0 else 0
+
     chart = (
-        f"Model buckets: {_bars(model_values)}\n"
-        f"Black BG ratio: {black_cnt}/{len(data)} ({black_ratio*100:.1f}%)"
+        f"📊 Распределение по проценту:\n"
+        f"• ≤0.5%: {_bars_single(model_values, 0.5)}\n"
+        f"• ≤1%: {_bars_single(model_values, 1)}\n"
+        f"• ≤2%: {_bars_single(model_values, 2)}\n"
+        f"• ≤3%: {_bars_single(model_values, 3)}\n"
+        f"• >3%: {_bars_single(model_values, 3, greater=True)}\n\n"
+        f"⚫ Черный фон: {black_cnt}/{total} ({black_ratio*100:.1f}%)"
     )
 
     return (
-        f"📊 <b>{collection}</b> (быстрая статистика)\n"
-        f"Последние {len(latest)} NFT:\n" + "\n".join(latest_lines) + "\n\n"
-        f"🔥 ТОП редких NFT:\n" + "\n".join(top_lines) + "\n\n"
-        f"📉 Графики:\n<code>{chart}</code>"
+        f"📊 <b>{collection}</b> — Быстрая статистика\n"
+        f"────────────────────\n\n"
+        f"🕒 <b>Последние {len(latest)} NFT:</b>\n" + "\n".join(latest_lines) + "\n\n"
+        f"🔥 <b>ТОП редких NFT:</b>\n" + "\n".join(top_lines) + "\n\n"
+        f"📈 <b>Статистика:</b>\n{chart}"
     )
+
+
+def _bars_single(values, threshold, greater=False):
+    if not values:
+        return "0%"
+    if greater:
+        count = sum(1 for v in values if v > threshold)
+    else:
+        count = sum(1 for v in values if v <= threshold)
+    return f"{count/len(values)*100:.0f}%"
 
 
 @dp.callback_query(F.data == "quick_stats_menu")
@@ -2313,6 +3690,8 @@ async def send_personal_alerts(collection, nft_id, data):
     for uid, user_data in GAMIFICATION.get("users", {}).items():
         if not is_pro_active(uid):
             continue
+        if int(uid) in HUNT_PAUSED_USERS:
+            continue
         hunts = user_data.get("hunts", [])
         for hunt in hunts:
             c = hunt.get("collection", "all").lower()
@@ -2350,7 +3729,7 @@ async def send_personal_alerts(collection, nft_id, data):
                 "<a href='https://t.me/onlyfanfarm'>@onlyfanfarm</a>"
             )
             try:
-                await bot.send_message(int(uid), msg, parse_mode="HTML", disable_web_page_preview=True)
+                await bot.send_message(int(uid), msg, parse_mode="HTML", disable_web_page_preview=True, reply_markup=hunt_control_keyboard())
                 mark_sent(key)
             except Exception as e:
                 logging.warning("Cannot send PRO hunt alert to %s: %s", uid, e)
@@ -2381,17 +3760,20 @@ async def check_collection(session, collection, current_ids):
 
     owner_name = data.get("owner_name", "Unknown").strip() or "Unknown"
     owner_link = data.get("owner_link", "")
-    OWNER_STATS.setdefault(owner_name, {"total": 0, "rare": 0, "link": ""})
+    OWNER_STATS.setdefault(owner_name, {"total": 0, "rare": 0, "black": 0, "link": ""})
     if "link" not in OWNER_STATS[owner_name]:
         OWNER_STATS[owner_name]["link"] = ""
+    if "black" not in OWNER_STATS[owner_name]:
+        OWNER_STATS[owner_name]["black"] = 0
     if owner_link.startswith("https://t.me"):
         OWNER_STATS[owner_name]["link"] = owner_link
     OWNER_STATS[owner_name]["total"] += 1
+    black_bg = data["bg"][0].lower() in ["black", "черный", "чёрный"]
+    if black_bg:
+        OWNER_STATS[owner_name]["black"] += 1
     if is_rare(data):
         OWNER_STATS[owner_name]["rare"] += 1
     save_owner_stats()
-
-    black_bg = data["bg"][0].lower() in ["black", "черный", "чёрный"]
 
     item = {
         "nft_id": nft_id,
@@ -2509,74 +3891,94 @@ async def stats(message: types.Message):
 
 def dashboard_keyboard():
     style = SETTINGS.get("dashboard_style", "v2")
+    dashboard_filter = SETTINGS.get("dashboard_filter", "all")
     next_style = "v1" if style == "v2" else "v2"
+    autostats = SETTINGS.get("live_stats_enabled", False)
+    signal_mode = SETTINGS.get("signal_mode", "balanced")
+
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
                 InlineKeyboardButton(text="🔄 Обновить", callback_data="dash_refresh"),
                 InlineKeyboardButton(text=f"🧩 Стиль: {style} → {next_style}", callback_data="dash_toggle_style"),
-            ]
+            ],
+            [
+                InlineKeyboardButton(text=f"📡 AutoStats: {'ON' if autostats else 'OFF'}", callback_data="dash_toggle_autostats"),
+                InlineKeyboardButton(text=f"🎛 Mode: {signal_mode.capitalize()}", callback_data="dash_cycle_mode"),
+            ],
+            [
+                InlineKeyboardButton(text=f"{'✅ ' if dashboard_filter == 'all' else ''}All", callback_data="dash_filter_all"),
+                InlineKeyboardButton(text=f"{'✅ ' if dashboard_filter == 'rare' else ''}Rare", callback_data="dash_filter_rare"),
+                InlineKeyboardButton(text=f"{'✅ ' if dashboard_filter == 'black' else ''}Black", callback_data="dash_filter_black"),
+            ],
         ]
     )
 
 
-def build_live_stats_message(style: str | None = None):
+def build_live_stats_message(style: str | None = None, filter_mode: str | None = None):
     style = style or SETTINGS.get("dashboard_style", "v2")
-    if style == "v1":
-        lines = ["📊 <b>ЖИВАЯ статистика</b>", "────────────────────"]
-    else:
-        lines = ["📊 <b>LIVE DASHBOARD v2</b>", ""]
+    filter_mode = filter_mode or SETTINGS.get("dashboard_filter", "all")
+
+    title = "📊 <b>LIVE DASHBOARD v2</b>" if style == "v2" else "📊 <b>ЖИВАЯ статистика</b>"
+    lines = [title, "────────────────────"]
+
+    total_all = sum(len(STATS.get(c, [])) for c in COLLECTIONS)
+    black_all = sum(1 for c in COLLECTIONS for nft in STATS.get(c, []) if nft.get("black_bg"))
+    rare_all = sum(1 for c in COLLECTIONS for nft in STATS.get(c, []) if nft.get("model_percent", 100) <= 1)
+
+    lines.extend([
+        f"• 📦 Всего NFT: <b>{total_all}</b>",
+        f"• ⚫ Black: <b>{black_all}</b>",
+        f"• 🔥 Rare: <b>{rare_all}</b>",
+        f"• 🎚️ Фильтр: <b>{filter_mode}</b>",
+        "",
+        "<b>Коллекции</b>",
+    ])
+
+    collections_stats = []
     for c in COLLECTIONS:
         data = STATS.get(c, [])
-        rare_count = COLLECTIONS[c].get("rare_count", 0)
+        total = len(data)
+        black = sum(1 for nft in data if nft.get("black_bg"))
+        rare = sum(1 for nft in data if nft.get("model_percent", 100) <= 1)
         max_percent = COLLECTIONS[c].get("max_percent", 2.0)
         enabled = "✅" if COLLECTIONS[c].get("enabled") else "❌"
-        if not data:
-            if style == "v1":
-                lines.append(
-                    f"{enabled} <b>{c}</b>\n"
-                    f"└ данных: 0 | фильтр ≤ {max_percent}% | rare(total): {rare_count}"
-                )
-            else:
-                lines.extend(
-                    [
-                        f"{enabled} <b>{c}</b>",
-                        f"• 📦 Всего: <b>0</b>",
-                        f"• ⚙️ Фильтр: <b>≤ {max_percent}%</b>",
-                        f"• 🔥 Rare total: <b>{rare_count}</b>",
-                        "",
-                    ]
-                )
-            continue
-        total_black = sum(1 for nft in data if nft["black_bg"])
-        total_rare = sum(1 for nft in data if nft["black_bg"] and nft["model_percent"] <= 1)
+        pct_rare = (rare / total * 100) if total else 0
+        pct_black = (black / total * 100) if total else 0
+
         if style == "v1":
-            lines.append(
+            row = (
                 f"{enabled} <b>{c}</b>\n"
-                f"└ всего: {len(data)} | black: {total_black} | rare(буфер): {total_rare}\n"
-                f"└ фильтр: ≤ {max_percent}% | rare(total): {rare_count}"
+                f"  Всего: <b>{total}</b> | ⚫ <b>{black}</b> | 🔥 <b>{rare}</b>\n"
+                f"  Фильтр ≤ <b>{max_percent}%</b> | rare(total): <b>{COLLECTIONS[c].get('rare_count', 0)}</b>"
             )
         else:
-            lines.extend(
-                [
-                    f"{enabled} <b>{c}</b>",
-                    f"• 📦 Всего: <b>{len(data)}</b>",
-                    f"• ⚫ Black: <b>{total_black}</b>",
-                    f"• 🔥 Rare (буфер): <b>{total_rare}</b>",
-                    f"• ⚙️ Фильтр: <b>≤ {max_percent}%</b>",
-                    f"• 💎 Rare total: <b>{rare_count}</b>",
-                    "",
-                ]
+            row = (
+                f"{enabled} <b>{c}</b> | Всего: {total} | ⚫{black}({pct_black:.1f}%) | 🔥{rare}({pct_rare:.1f}%) "
+                f"| filter ≤{max_percent}%"
             )
 
-    if style == "v1":
-        lines.append("────────────────────")
+        collections_stats.append((c, total, black, rare, pct_rare, pct_black, row))
+
+    if filter_mode == "rare":
+        collections_stats.sort(key=lambda i: i[3], reverse=True)
+    elif filter_mode == "black":
+        collections_stats.sort(key=lambda i: i[2], reverse=True)
     else:
-        lines.append("────────────")
-    lines.append(
-        f"⚙️ Mode: <b>{SETTINGS.get('signal_mode', 'balanced')}</b>  |  "
-        f"📡 AutoStats: <b>{'ON' if SETTINGS.get('live_stats_enabled') else 'OFF'}</b>"
-    )
+        collections_stats.sort(key=lambda i: i[1], reverse=True)
+
+    for c, total, black, rare, pct_rare, pct_black, row in collections_stats[:8]:
+        lines.append(row)
+        lines.append("")
+
+    # убрать лишнюю пустую строку в конце блока коллекций
+    if lines and lines[-1] == "":
+        lines.pop()
+
+    lines.extend([
+        "────────────────────",
+        f"⚙️ Mode: <b>{SETTINGS.get('signal_mode', 'balanced')}</b>  |  📡 AutoStats: <b>{'ON' if SETTINGS.get('live_stats_enabled') else 'OFF'}</b>",
+    ])
     return "\n".join(lines)
 
 
@@ -2667,6 +4069,58 @@ async def dash_toggle_style(call: types.CallbackQuery):
         reply_markup=dashboard_keyboard(),
     )
     await call.answer(f"Стиль: {SETTINGS['dashboard_style']}")
+
+
+@dp.callback_query(F.data == "dash_toggle_autostats")
+async def dash_toggle_autostats(call: types.CallbackQuery):
+    if not await ensure_admin_callback(call):
+        return
+    SETTINGS["live_stats_enabled"] = not SETTINGS.get("live_stats_enabled", False)
+    save_settings()
+    await call.message.edit_text(
+        build_live_stats_message(),
+        parse_mode="HTML",
+        disable_web_page_preview=True,
+        reply_markup=dashboard_keyboard(),
+    )
+    await call.answer(f"AutoStats: {'ON' if SETTINGS['live_stats_enabled'] else 'OFF'}")
+
+
+@dp.callback_query(F.data == "dash_cycle_mode")
+async def dash_cycle_mode(call: types.CallbackQuery):
+    if not await ensure_admin_callback(call):
+        return
+    modes = ["conservative", "balanced", "aggressive"]
+    current = SETTINGS.get("signal_mode", "balanced")
+    next_mode = modes[(modes.index(current) + 1) % len(modes)] if current in modes else "balanced"
+    SETTINGS["signal_mode"] = next_mode
+    save_settings()
+    await call.message.edit_text(
+        build_live_stats_message(),
+        parse_mode="HTML",
+        disable_web_page_preview=True,
+        reply_markup=dashboard_keyboard(),
+    )
+    await call.answer(f"Mode: {next_mode}")
+
+
+@dp.callback_query(F.data.startswith("dash_filter_"))
+async def dash_filter_callback(call: types.CallbackQuery):
+    if not await ensure_admin_callback(call):
+        return
+    filter_mode = call.data.replace("dash_filter_", "")
+    if filter_mode not in ("all", "rare", "black"):
+        await call.answer("Неизвестный фильтр", show_alert=True)
+        return
+    SETTINGS["dashboard_filter"] = filter_mode
+    save_settings()
+    await call.message.edit_text(
+        build_live_stats_message(),
+        parse_mode="HTML",
+        disable_web_page_preview=True,
+        reply_markup=dashboard_keyboard(),
+    )
+    await call.answer(f"Фильтр: {filter_mode}")
 
 
 async def live_stats_loop():
